@@ -8,3 +8,4 @@ dist/
 
 artifacts/*
 !artifacts/.gitkeep
+take-home-test-px.pdf
