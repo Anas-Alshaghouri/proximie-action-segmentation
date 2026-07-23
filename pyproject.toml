@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proximie-action-segmentation"
+version = "0.3.0"
+description = "Lightweight causal multi-view temporal action segmentation prototype"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24,<3.0",
+  "PyYAML>=6.0,<7.0",
+  "torch>=2.1,<3.0",
+  "scikit-learn>=1.3,<2.0",
+  "matplotlib>=3.7,<4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4,<9.0"]
+
+[project.scripts]
+proximie-train = "action_segmentation.training_cli:main"
+proximie-evaluate = "action_segmentation.cli:evaluate_main"
+proximie-validate = "action_segmentation.validation_cli:main"
+proximie-analyze-errors = "action_segmentation.error_cli:main"
+proximie-visualize = "action_segmentation.visualization_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,61 @@
+project:
+  name: proximie_action_segmentation
+  seed: 42
+
+phases:
+  names:
+    - empty
+    - patient_present
+    - preparation
+    - operation
+    - closing
+
+data:
+  sampling_rate_hz: 1.0
+  sequence_length: 600
+  feature_dim: 64
+  phase_duration_weights: [0.10, 0.25, 0.15, 0.40, 0.10]
+  minimum_phase_duration_seconds: 20
+  min_views: 1
+  max_views: 3
+  train_samples: 64
+  validation_samples: 16
+  test_samples: 16
+  feature_noise_std: 0.20
+  view_bias_std: 0.10
+  occlusion_probability: 0.08
+  camera_dropout_probability: 0.05
+  boundary_noise_seconds: 3
+
+fusion:
+  type: masked_mean
+
+model:
+  type: causal_tcn
+  input_dim: 64
+  hidden_dim: 64
+  num_classes: 5
+  kernel_size: 3
+  dilations: [1, 2, 4, 8]
+  dropout: 0.10
+  causal: true
+
+training:
+  batch_size: 8
+  epochs: 10
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  device: auto
+
+postprocessing:
+  smoothing_window_seconds: 5
+  min_segment_duration_seconds: 8
+
+evaluation:
+  segment_iou_thresholds: [0.10, 0.25, 0.50]
+  boundary_tolerance_seconds: 5
+
+output:
+  artifacts_directory: artifacts
+  checkpoint_filename: model.pt
+  metrics_filename: metrics.json

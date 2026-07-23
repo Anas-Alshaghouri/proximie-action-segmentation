@@ -1,0 +1,76 @@
+digraph G {
+  graph [
+    rankdir=TB,
+    bgcolor="white",
+    pad="0.28",
+    nodesep="0.45",
+    ranksep="0.55",
+    splines=polyline,
+    fontname="Arial",
+    fontsize=18,
+    label="Proximie Real-Time Multi-View Action Segmentation on AWS",
+    labelloc=t
+  ];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, margin="0.16,0.11", color="#334155", fillcolor="#F8FAFC"];
+  edge [fontname="Arial", fontsize=9, color="#475569", arrowsize=0.75];
+
+  subgraph cluster_hospital {
+    label="Hospital";
+    color="#94A3B8";
+    style="rounded,dashed";
+    cameras [label="1–3 OR Cameras\nRTSP video", fillcolor="#E0F2FE"];
+    gateway [label="Hospital Gateway\nCamera health • NTP capture time\nStream identity • encrypted upload", fillcolor="#DBEAFE"];
+    cameras -> gateway;
+  }
+
+  subgraph cluster_aws {
+    label="AWS Region — Private VPC";
+    color="#64748B";
+    style="rounded";
+
+    kvs [label="Kinesis Video Streams\nOne stream per camera\nN-day raw retention", fillcolor="#FEF3C7"];
+    sync [label="EKS CPU — Stream Coordinator\nBounded jitter buffer\nProducer-time alignment\nWatermark + view/time masks", fillcolor="#DCFCE7"];
+    feature [label="EKS GPU — Feature Extraction\nShared micro-batches\nVisual backbone\nDecoded frames discarded", fillcolor="#F3E8FF"];
+    kds [label="Kinesis Data Streams\nFeature events\nPartition key = room_id", fillcolor="#FEF3C7"];
+    temporal [label="EKS CPU — Temporal Service\nMasked fusion → causal TCN\nSmoothing → confirmed timeline", fillcolor="#DCFCE7"];
+    eventbridge [label="EventBridge\nConfirmed phase changes", fillcolor="#E0E7FF"];
+    product [label="Proximie Product Services\nWorkflow UI and downstream APIs", fillcolor="#DBEAFE"];
+
+    gateway -> kvs [label="live media"];
+    kvs -> sync [label="producer timestamps"];
+    sync -> feature [label="aligned valid frames"];
+    feature -> kds [label="features + masks"];
+    kds -> temporal [label="room-keyed events"];
+    temporal -> eventbridge [label="phase change"];
+    eventbridge -> product;
+
+    ddb [label="DynamoDB\nRoom/camera registry\nLatest phase + model version\nHard-example metadata TTL", fillcolor="#FFE4E6"];
+    cache [label="ElastiCache\nShort-lived rolling feature\nand timeline state • TTL", fillcolor="#FFE4E6"];
+
+    {rank=same; sync; ddb;}
+    {rank=same; temporal; cache;}
+    ddb -> sync [dir=both, label="registry / health"];
+    temporal -> ddb [label="latest state"];
+    temporal -> cache [dir=both, label="rolling state"];
+
+    distiller [label="Hard-Example Distiller\nUncertainty • disagreement\nFragmentation • OOD", fillcolor="#FCE7F3"];
+    s3 [label="S3\nModel artifacts + distilled\nfeature windows only\nLifecycle + KMS", fillcolor="#FFEDD5"];
+    offline [label="Offline Curation\nSageMaker Processing / Batch\nClustering + active learning", fillcolor="#F3E8FF"];
+
+    temporal -> distiller [label="hard-example signals"];
+    distiller -> s3 [label="distilled features"];
+    distiller -> ddb [label="expiring metadata"];
+    s3 -> offline [label="curated feature pool"];
+
+    monitoring [label="CloudWatch + Managed Prometheus\nStream lag • queue depth • latency\nGPU • masks • product metrics • alarms", fillcolor="#F1F5F9"];
+    security [label="KMS • IAM • EKS Pod Identity\nPrivate subnets • VPC endpoints\nSecrets Manager • CloudTrail", fillcolor="#F1F5F9"];
+    {rank=same; monitoring; security;}
+
+    sync -> monitoring [style=dashed, label="metrics"];
+    feature -> monitoring [style=dashed];
+    temporal -> monitoring [style=dashed];
+    security -> kvs [style=dashed, arrowhead=none, label="cross-cutting controls"];
+    security -> temporal [style=dashed, arrowhead=none];
+    security -> s3 [style=dashed, arrowhead=none];
+  }
+}

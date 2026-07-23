@@ -1,0 +1,2 @@
+[console_scripts]
+proximie-evaluate = action_segmentation.cli:evaluate_main

@@ -1,0 +1,186 @@
+Metadata-Version: 2.4
+Name: proximie-action-segmentation
+Version: 0.1.0
+Summary: Lightweight causal multi-view temporal action segmentation prototype
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy<3.0,>=1.24
+Requires-Dist: PyYAML<7.0,>=6.0
+Requires-Dist: torch<3.0,>=2.1
+Requires-Dist: scikit-learn<2.0,>=1.3
+Provides-Extra: dev
+Requires-Dist: pytest<9.0,>=7.4; extra == "dev"
+
+# Proximie Action Segmentation Prototype
+
+A lightweight, reproducible prototype for causal multi-view temporal action segmentation.
+
+The repository currently provides:
+
+- YAML-based configuration and fail-fast validation
+- Deterministic synthetic workflow sequences
+- One-to-three simulated camera feature streams
+- A validated precomputed-feature ingestion boundary
+- Mask-aware mean fusion across available camera views
+- A lightweight causal Temporal Convolutional Network (TCN)
+- Masked classification loss for timestamps with valid camera evidence
+- Causal timeline smoothing and minimum-duration confirmation
+- Dual evaluation stack: frame, segment, boundary, and product metrics
+- Automated causality, shape, mask, metric, and reproducibility tests
+
+## Current assumptions
+
+- Workflow phases: `empty`, `patient_present`, `preparation`, `operation`, `closing`
+- Feature rate: 1 Hz
+- Sequence length: 600 timestamps
+- Camera views: 1–3
+- Feature dimension: 64
+- Fusion: masked mean across valid views
+- Temporal model: causal TCN with dilations `[1, 2, 4, 8]`
+- Model receptive field: 61 seconds
+- Timeline smoothing: causal 5-second probability average
+- Phase confirmation: 8 consecutive seconds before switching
+- Raw video and visual feature extraction are outside the prototype scope
+
+## Environment setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
+```
+
+## Validate the pipeline through dual evaluation
+
+```bash
+python scripts/evaluate_mock.py --config configs/default.yaml
+```
+
+The command runs:
+
+```text
+Synthetic multi-view features
+        ↓
+Ingestion contract validation
+        ↓
+Masked mean view fusion
+        ↓
+Causal TCN
+        ↓
+Frame-level class logits [batch, time, classes]
+        ↓
+Causal probability smoothing
+        ↓
+Minimum-duration phase confirmation
+        ↓
+Contiguous human-readable timeline
+        ↓
+Frame, segment, boundary, and product metrics
+```
+
+The model is untrained at this milestone. The command validates architecture and data flow, not predictive quality. Timeline cleanup is demonstrated with controlled short false-positive islands so its behavior remains easy to inspect.
+
+## Inspect the generated data
+
+```bash
+python scripts/inspect_mock_data.py \
+    --config configs/default.yaml \
+    --split validation \
+    --sample-index 0
+```
+
+## Run tests
+
+```bash
+pytest
+```
+
+## Causal TCN design
+
+The fused input has shape:
+
+```text
+[batch, time, 64]
+```
+
+The TCN first projects the 64-dimensional feature into 64 hidden channels. It then applies four residual temporal blocks using dilations:
+
+```text
+1 → 2 → 4 → 8
+```
+
+Each block contains two causal convolutions. Causal means that the prediction at second `t` can use only the current and earlier feature vectors. It cannot read second `t+1` or any later input.
+
+With kernel size 3, two convolutions per block, and the configured dilations, the receptive field is:
+
+```text
+1 + 2 × (3 - 1) × (1 + 2 + 4 + 8) = 61 steps
+```
+
+At 1 Hz, each prediction can use up to 61 seconds of current-and-past context.
+
+## Timeline post-processing
+
+The temporal model produces one raw score per phase at every second. The timeline generator converts these frame-level outputs into contiguous intervals using two causal stages:
+
+1. A 5-second moving average over the current and previous probabilities
+2. An 8-second debounce rule before confirming a new phase
+
+A short false-positive island therefore does not immediately split a long phase. A real sustained transition is accepted after enough evidence accumulates. This creates a deliberate confirmation delay, which is measured later as a product metric.
+
+Completely missing timestamps use the reserved label `-1` and appear as `unavailable`; they are never silently converted into `empty`. Segment ends are exclusive, so `[80, 239)` means second 80 is included and second 239 belongs to the next segment.
+
+## Dual metric stack
+
+The evaluation layer intentionally measures the same predictions from three viewpoints:
+
+1. **Frame metrics** measure individual timestamps: accuracy, macro F1, per-class precision/recall/F1, and confusion matrix.
+2. **Segment metrics** measure timeline quality: segmental F1 at IoU 10/25/50, normalized edit score, and start/end boundary error.
+3. **Product metrics** focus on the two challenge classes:
+   - `patient_present`: false-positive duration, missed duration, fragmentation, state switches, and confirmation delay
+   - `operation`: start/end delay, temporal coverage, false-positive duration, occlusion coverage, and recovery time
+
+The validation command compares controlled raw predictions with cleaned predictions. In the default demonstration, post-processing removes the extra Patient Present and Operation fragments and raises edit score from about 55.6 to 100.0. The trade-off is a nine-second Operation confirmation delay and lower frame accuracy. This is intentional: stability and responsiveness must be measured separately instead of hiding one behind a single accuracy number.
+
+The model remains untrained at Step 7. Controlled logits are used only to prove that every metric responds correctly to known fragmentation and boundary errors. Full trained-model evaluation is added in Step 9.
+
+## Missing timestamps
+
+When every camera is unavailable at a timestamp:
+
+- Its fused input feature is zero
+- `time_mask=False`
+- Its output logits are zero
+- It is excluded from the classification loss
+
+This prevents missing camera evidence from being treated as a normal labeled observation.
+
+## Repository structure
+
+```text
+configs/                          Runtime configuration
+scripts/                          Executable and inspection commands
+src/action_segmentation/config.py
+src/action_segmentation/data/     Synthetic generation and ingestion
+src/action_segmentation/models/   Multi-view fusion and causal TCN
+src/action_segmentation/postprocessing/ Causal smoothing and timeline generation
+src/action_segmentation/evaluation/ Frame, segment, boundary, and product metrics
+src/action_segmentation/training/ Mask-aware training utilities
+src/action_segmentation/pipeline.py
+tests/                            Automated tests
+docs/                             Architecture report and diagram
+artifacts/                        Generated outputs; ignored by Git
+```
+
+## Development status
+
+- [x] Step 1: assumptions and tensor contracts
+- [x] Step 2: repository foundation
+- [x] Step 3: synthetic multi-view temporal data
+- [x] Step 4: ingestion and masked multi-view fusion
+- [x] Step 5: causal temporal model
+- [x] Step 6: timeline post-processing
+- [x] Step 7: model and product metrics
+- [ ] Step 8: error analysis
+- [ ] Step 9: end-to-end training and evaluation
